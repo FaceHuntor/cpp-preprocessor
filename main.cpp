@@ -23,7 +23,7 @@ bool Preprocess(const path& in_file, const path& out_file, const vector<path>& i
 
 bool PreprocessDirs(ostream& out_stream, const vector<path>& include_directories, const std::string& cur_include);
 
-bool Preprocess(const path& in_file, ostream& out_stream, const vector<path>& include_directories);
+bool Preprocess(istream& in_stream, ostream& out_stream, const path& cur_path, const vector<path>& include_directories);
 
 void PrintError(const std::string& cur_include, const std::string& in_file, int line);
 
@@ -106,8 +106,14 @@ int main() {
 }
 
 bool PreprocessDirs(ostream& out_stream, const vector<path>& include_directories, const std::string& cur_include){
+    ifstream in_stream;
     for (const auto &in_dir: include_directories) {
-        if(Preprocess(in_dir / cur_include, out_stream, include_directories)){
+        path in_path = in_dir / cur_include;
+        in_stream.open(in_path);
+        if(!in_stream.is_open()){
+            continue;
+        }
+        if(Preprocess(in_stream, out_stream, in_path, include_directories)){
             return true;
         }
     }
@@ -118,25 +124,19 @@ void PrintError(const std::string& cur_include, const std::string& in_file, int 
     cout << "unknown include file "<< cur_include <<" at file " << in_file << " at line " << line << endl;
 }
 
-bool Preprocess(const path& in_file, ostream& out_stream, const vector<path>& include_directories){
-    if(!filesystem::exists(in_file) || !is_regular_file(in_file)){
-        return false;
-    }
-    ifstream in_stream(in_file);
-    if(!in_stream.is_open()){
-        return false;
-    }
-
+bool Preprocess(istream& in_stream, ostream& out_stream, const path& cur_path, const vector<path>& include_directories){
     string cur_line;
 
     int line = 1;
     while(getline(in_stream, cur_line)) {
         smatch cur_match;
         if (regex_match(cur_line, cur_match, local_l_r)) {
-            auto cur_include = cur_match[1].str();
-            if(!Preprocess(in_file.parent_path() /cur_include, out_stream, include_directories)){
-                if(!PreprocessDirs(out_stream, include_directories, cur_include)){
-                    PrintError(cur_include, in_file.string(), line);
+            auto next_include = cur_match[1].str();
+            path next_path = cur_path.parent_path() / next_include;
+            ifstream next_in_stream(next_path);
+            if(!next_in_stream.is_open() || !Preprocess(next_in_stream, out_stream, next_path, include_directories)){
+                if(!PreprocessDirs(out_stream, include_directories, next_include)){
+                    PrintError(next_include, cur_path.string(), line);
                     return false;
                 }
             }
@@ -144,7 +144,7 @@ bool Preprocess(const path& in_file, ostream& out_stream, const vector<path>& in
         else if (regex_match(cur_line, cur_match, global_l_r)) {
             auto cur_include = cur_match[1].str();
             if(!PreprocessDirs(out_stream, include_directories, cur_include)){
-                PrintError(cur_include, in_file.string(), line);
+                PrintError(cur_include, cur_path.string(), line);
                 return false;
             }
         }
@@ -163,5 +163,10 @@ bool Preprocess(const path& in_file, const path& out_file, const vector<path>& i
         return false;
     }
 
-    return Preprocess(in_file, out_stream, include_directories);
+    ifstream in_stream(in_file);
+    if(!in_stream.is_open()){
+        return false;
+    }
+
+    return Preprocess(in_stream, out_stream, in_file, include_directories);
 }
